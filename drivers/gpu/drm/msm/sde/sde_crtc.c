@@ -721,6 +721,47 @@ static int _sde_debugfs_fps_status(struct inode *inode, struct file *file)
 }
 #endif
 
+static ssize_t early_wakeup_store(struct device *device,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_crtc *crtc;
+	struct sde_crtc *sde_crtc;
+	struct msm_drm_private *priv;
+	u32 crtc_id;
+	bool trigger;
+
+	if (!device || !buf || !count) {
+		SDE_ERROR("invalid input param(s)\n");
+		return -EINVAL;
+	}
+
+	if (kstrtobool(buf, &trigger) < 0)
+		return -EINVAL;
+
+	if (!trigger)
+		return count;
+
+	crtc = dev_get_drvdata(device);
+	if (!crtc || !crtc->dev || !crtc->dev->dev_private) {
+		SDE_ERROR("invalid crtc\n");
+		return -EINVAL;
+	}
+
+	sde_crtc = to_sde_crtc(crtc);
+	priv = crtc->dev->dev_private;
+
+	crtc_id = drm_crtc_index(crtc);
+	if (crtc_id >= ARRAY_SIZE(priv->disp_thread)) {
+		SDE_ERROR("invalid crtc index[%d]\n", crtc_id);
+		return -EINVAL;
+	}
+
+	kthread_queue_work(&priv->disp_thread[crtc_id].worker,
+			&sde_crtc->early_wakeup_work);
+
+	return count;
+}
+
 static ssize_t set_fps_periodicity(struct device *device,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -890,10 +931,12 @@ static DEVICE_ATTR_RO(vsync_event);
 static DEVICE_ATTR(measured_fps, 0444, measured_fps_show, NULL);
 static DEVICE_ATTR(fps_periodicity_ms, 0644, fps_periodicity_show,
 							set_fps_periodicity);
+static DEVICE_ATTR_WO(early_wakeup);
 static struct attribute *sde_crtc_dev_attrs[] = {
 	&dev_attr_vsync_event.attr,
 	&dev_attr_measured_fps.attr,
 	&dev_attr_fps_periodicity_ms.attr,
+	&dev_attr_early_wakeup.attr,
 	NULL
 };
 
@@ -6860,37 +6903,6 @@ static void __sde_crtc_early_wakeup_work(struct kthread_work *work)
 	sde_kms_trigger_early_wakeup(sde_kms, crtc);
 }
 
-void sde_crtc_touch_notify(void)
-{
-	int ret = 0;
-	struct drm_event event;
-	struct dsi_bridge *c_bridge = NULL;
-	struct dsi_display *dsi_display = NULL;
-	struct drm_encoder *encoder = NULL;
-
-	if (gcrtc) {
-		list_for_each_entry(encoder, &gcrtc->dev->mode_config.encoder_list, head) {
-			if (encoder->crtc != gcrtc)
-				continue;
-
-			c_bridge = container_of(encoder->bridge, struct dsi_bridge, base);
-			if (c_bridge)
-				dsi_display = c_bridge->display;
-			break;
-		}
-
-		if (dsi_display && dsi_display->is_prim_display && dsi_display->panel
-			&& !dsi_display->panel->panel_max_frame_rate) {
-				event.type = DRM_EVENT_TOUCH;
-				event.length = sizeof(u32);
-				msm_mode_object_event_notify(&gcrtc->base, gcrtc->dev,
-					&event, (u8 *)&ret);
-			gcrtc = NULL;
-		}
-	}
-}
-EXPORT_SYMBOL(sde_crtc_touch_notify);
-
 /* initialize crtc */
 struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 {
@@ -6982,6 +6994,8 @@ struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 
 	kthread_init_delayed_work(&sde_crtc->idle_notify_work,
 					__sde_crtc_idle_notify_work);
+	kthread_init_work(&sde_crtc->early_wakeup_work,
+					__sde_crtc_early_wakeup_work);
 
 	SDE_DEBUG("%s: successfully initialized crtc\n", sde_crtc->name);
 	return crtc;

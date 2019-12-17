@@ -222,6 +222,7 @@ struct sde_crtc_fps_info {
  * @sbuf_rot_id_old: inline rotator id for previous commit
  * @sbuf_rot_id_delta: inline rotator id for current delta state
  * @idle_notify_work: delayed worker to notify idle timeout to user space
+ * @early_wakeup_work: work to trigger early wakeup
  * @power_event   : registered power event handle
  * @cur_perf      : current performance committed to clock/bandwidth driver
  * @rp_lock       : serialization lock for resource pool
