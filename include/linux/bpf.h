@@ -105,6 +105,7 @@ struct bpf_map {
 	atomic_t refcnt ____cacheline_aligned;
 	atomic_t usercnt;
 	struct work_struct work;
+	char name[BPF_OBJ_NAME_LEN];
 };
 
 static inline bool map_value_has_spin_lock(const struct bpf_map *map)
