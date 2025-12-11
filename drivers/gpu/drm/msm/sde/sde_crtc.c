@@ -6909,6 +6909,37 @@ static void __sde_crtc_early_wakeup_work(struct kthread_work *work)
 	sde_kms_trigger_early_wakeup(sde_kms, crtc);
 }
 
+void sde_crtc_touch_notify(void)
+{
+	int ret = 0;
+	struct drm_event event;
+	struct dsi_bridge *c_bridge = NULL;
+	struct dsi_display *dsi_display = NULL;
+	struct drm_encoder *encoder = NULL;
+
+	if (gcrtc) {
+		list_for_each_entry(encoder, &gcrtc->dev->mode_config.encoder_list, head) {
+			if (encoder->crtc != gcrtc)
+				continue;
+
+			c_bridge = container_of(encoder->bridge, struct dsi_bridge, base);
+			if (c_bridge)
+				dsi_display = c_bridge->display;
+			break;
+		}
+
+		if (dsi_display && dsi_display->is_prim_display && dsi_display->panel
+			&& !dsi_display->panel->panel_max_frame_rate) {
+				event.type = DRM_EVENT_TOUCH;
+				event.length = sizeof(u32);
+				msm_mode_object_event_notify(&gcrtc->base, gcrtc->dev,
+					&event, (u8 *)&ret);
+			gcrtc = NULL;
+		}
+	}
+}
+EXPORT_SYMBOL(sde_crtc_touch_notify);
+
 /* initialize crtc */
 struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 {
