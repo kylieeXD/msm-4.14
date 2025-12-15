@@ -147,6 +147,32 @@ static char *initcall_command_line;
 static char *execute_command;
 static char *ramdisk_execute_command;
 
+/* Workarounds */
+static bool legacy_timestamp_source = false;
+DEFINE_STATIC_KEY_FALSE(legacy_timestamp_key);
+EXPORT_SYMBOL(legacy_timestamp_key);
+
+static int __init set_timestamp_source(char *val) {
+	int tmp = legacy_timestamp_source;
+
+	if (get_option(&val, &tmp)) {
+		legacy_timestamp_source = tmp != 0;
+	}
+
+	if (legacy_timestamp_source) {
+		static_branch_enable(&legacy_timestamp_key);
+	} else {
+		static_branch_disable(&legacy_timestamp_key);
+	}
+
+	return 0;
+}
+__setup("legacy_timestamp_source=", set_timestamp_source);
+
+unsigned int is_legacy_timestamp(void) {
+	return legacy_timestamp_source;
+}
+
 /*
  * Used to generate warnings if static_key manipulation functions are used
  * before jump_label_init is called.
@@ -594,6 +620,9 @@ asmlinkage __visible void __init start_kernel(void)
 	if (!IS_ERR_OR_NULL(after_dashes))
 		parse_args("Setting init args", after_dashes, NULL, 0, -1, -1,
 			   NULL, set_init_arg);
+
+	pr_info("Workaround: legacy_timestamp_source=%s\n",
+			legacy_timestamp_source ? "enabled" : "disabled");
 
 	/*
 	 * These use large bootmem allocations and must precede
